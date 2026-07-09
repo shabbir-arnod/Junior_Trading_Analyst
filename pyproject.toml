@@ -1,0 +1,8 @@
+[project]
+name = "junior-trading-analyst"
+version = "0.1.0"
+description = "AI infrastructure stock tracking and analysis agent"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
