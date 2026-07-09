@@ -42,6 +42,17 @@ CACHE_TTL_SECONDS = 15 * 60
 DEMO_MODE = os.environ.get("JTA_DEMO", "").strip() in ("1", "true", "yes")
 
 
+def _apply_streamlit_secrets() -> None:
+    """Copy top-level string secrets (Streamlit Cloud's Secrets box) into
+    environment variables so analyst.config.load_settings() sees them."""
+    try:
+        for key, value in st.secrets.items():
+            if isinstance(value, str) and key not in os.environ:
+                os.environ[key] = value
+    except FileNotFoundError:
+        pass  # no secrets.toml configured -- normal for local runs
+
+
 def _make_provider():
     if DEMO_MODE:
         from analyst.data_sources.demo_data import DemoMarketDataProvider
@@ -415,6 +426,7 @@ Claude from the same data shown on screen — it never invents numbers.
 
 
 def main():
+    _apply_streamlit_secrets()
     settings = load_settings()
     watchlist = Watchlist.load(settings.watchlist_path)
 
