@@ -1,0 +1,35 @@
+# Junior Trading Analyst - AI Infrastructure Stock Watchlist
+#
+# This is a starting seed list, not investment advice. Edit freely with
+# `python -m analyst.cli add/remove`, or by hand.
+#
+# groups:
+#   core      -> established "top 10" AI infrastructure growth stocks
+#   emerging  -> smaller/newer names with high AI-infrastructure growth exposure
+#
+# Each entry is just a ticker symbol; all descriptive data (sector, thesis,
+# financials, news) is fetched live by the data source layer at report time.
+
+core:
+  - NVDA   # Nvidia - AI accelerators / GPUs
+  - AMD    # Advanced Micro Devices - AI accelerators / CPUs
+  - AVGO   # Broadcom - custom AI silicon, networking
+  - TSM    # Taiwan Semiconductor - AI chip foundry
+  - MSFT   # Microsoft - Azure AI infrastructure, OpenAI partner
+  - GOOGL  # Alphabet - TPUs, cloud AI infrastructure
+  - AMZN   # Amazon - AWS AI infrastructure, Trainium/Inferentia
+  - META   # Meta Platforms - AI infrastructure capex, custom silicon
+  - ORCL   # Oracle - AI cloud infrastructure (OCI)
+  - ANET   # Arista Networks - AI data center networking
+
+emerging:
+  - SMCI   # Super Micro Computer - AI server/rack systems
+  - VRT    # Vertiv - data center power & cooling for AI
+  - MRVL   # Marvell Technology - custom AI/networking silicon
+  - DELL   # Dell Technologies - AI server systems
+  - ARM    # Arm Holdings - AI chip IP/architecture
+  - CEG    # Constellation Energy - power supply for AI data centers
+  - MU     # Micron Technology - AI memory (HBM)
+  - IONQ   # IonQ - quantum computing (adjacent/emerging AI infra)
+  - CRWV   # CoreWeave - AI cloud/GPU infrastructure
+  - APLD   # Applied Digital - AI data center infrastructure
