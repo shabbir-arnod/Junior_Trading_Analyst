@@ -33,11 +33,39 @@ public data and heuristics; always do your own diligence.
   line -- explicitly grounded in only the fetched data, with no invented
   numbers.
 
-## Setup
+## Quick start (non-technical): the web dashboard
+
+The easiest way to use the analyst is the point-and-click web dashboard:
+
+- **Windows**: double-click `start_dashboard.bat`
+- **Mac/Linux**: run `./start_dashboard.sh` in a terminal
+
+The first run installs everything it needs (give it a minute), then your
+browser opens the dashboard. Pick a stock group in the sidebar, press
+**Run analysis**, and you get:
+
+- a **watchlist summary table** with each stock's price, signal
+  (🟢 Bullish / ⚪ Neutral / 🔴 Bearish), score, analyst upside, and where
+  it sits in its 52-week range,
+- expandable **per-stock detail** with a 2-year price chart (with 50-day
+  and 200-day averages), key numbers, why-this-signal breakdown, recent
+  news, insider activity, and an optional AI-written analyst note,
+- a **Watchlist tab** to add/remove stocks with a form (no file editing),
+- a **Help tab** explaining how to read everything, in plain English.
+
+Want to try it without internet or any API keys? Launch in demo mode with
+clearly-watermarked synthetic data: `JTA_DEMO=1 streamlit run app.py`
+(Windows: `set JTA_DEMO=1 && python -m streamlit run app.py`).
+
+You only need Python installed (python.org, version 3.10 or newer) —
+everything else is automatic.
+
+## Setup (manual / command-line)
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env   # then fill in whichever keys you have
+streamlit run app.py   # web dashboard, or use the CLI below
 ```
 
 The agent runs with **zero API keys** using [yfinance](https://github.com/ranaroussi/yfinance)
@@ -80,6 +108,8 @@ itself doesn't need to change.
 ## Project layout
 
 ```
+app.py                      web dashboard (streamlit run app.py)
+start_dashboard.sh / .bat   one-click launchers (Mac/Linux and Windows)
 analyst/
   cli.py                    entry point (report / watchlist / add / remove)
   universe.py                watchlist loading & comment-preserving edits
@@ -87,6 +117,7 @@ analyst/
   data_sources/
     base.py                    shared data models (PriceSnapshot, AnalystView, ...)
     market_data.py              yfinance provider (no key required)
+    demo_data.py                offline synthetic data (JTA_DEMO=1)
     finnhub_provider.py         optional: news, insider data, rec. trends
     newsapi_provider.py         optional: broad news/press-release search
     fred_provider.py            optional: macro indicators

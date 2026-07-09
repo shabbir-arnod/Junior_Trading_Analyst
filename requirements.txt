@@ -6,6 +6,8 @@ python-dotenv>=1.0
 requests>=2.31
 anthropic>=0.34
 rich>=13.0
+streamlit>=1.38
+plotly>=5.20
 
 # dev / test
 pytest>=8.0
