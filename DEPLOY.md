@@ -36,15 +36,18 @@ It's free, requires no coding, and takes about 5 minutes.
 The dashboard works immediately with no keys. To enable the AI analyst
 notes on the deployed app:
 
-1. On your app's page at share.streamlit.io, click the **⋮ menu → Settings
+1. Get a free Gemini API key from
+   [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (just a
+   Google account, no credit card).
+2. On your app's page at share.streamlit.io, click the **⋮ menu → Settings
    → Secrets**.
-2. Paste this (with your real key) and save:
+3. Paste this (with your real key) and save:
 
    ```toml
-   ANTHROPIC_API_KEY = "sk-ant-..."
+   GEMINI_API_KEY = "your-key-here"
    ```
 
-3. The app restarts automatically and the AI note toggle lights up.
+4. The app restarts automatically and the AI note toggle lights up.
 
 You can add the other optional keys the same way (`FINNHUB_API_KEY`,
 `NEWSAPI_KEY`, `FRED_API_KEY`). **Never** put these keys in the code or

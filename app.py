@@ -434,12 +434,12 @@ def render_dashboard(watchlist: Watchlist, settings):
     want_ai = st.sidebar.toggle(
         "AI-written analyst note",
         value=False,
-        help="Needs an Anthropic API key in your .env file. Adds a short written "
+        help="Needs a Gemini API key in your .env file. Adds a short written "
              "research note per stock.",
         disabled=not settings.has_llm,
     )
     if not settings.has_llm:
-        st.sidebar.caption("Add ANTHROPIC_API_KEY to .env to unlock AI notes.")
+        st.sidebar.caption("Add GEMINI_API_KEY to .env to unlock AI notes.")
 
     run = st.sidebar.button("Run analysis", type="primary", width="stretch")
     st.sidebar.caption("Data is cached for 15 minutes. Rerun after that for fresh numbers.")
@@ -552,7 +552,7 @@ def render_dashboard(watchlist: Watchlist, settings):
                     with st.spinner("Writing analyst note…"):
                         try:
                             st.session_state[note_key] = generate_narrative(
-                                bundle, signal, None, settings.anthropic_api_key,
+                                bundle, signal, None, settings.gemini_api_key,
                             )
                         except Exception as exc:
                             st.session_state[note_key] = f"_AI note failed: {exc}_"
@@ -690,7 +690,7 @@ example, a stock at its 52-week high with a bullish signal is still riskier to
 buy today than the same signal after a pullback.
 
 **The AI-written analyst note** (optional) is a short research memo written by
-Claude from the same data shown on screen — it never invents numbers.
+Google's Gemini from the same data shown on screen — it never invents numbers.
 
 **The AI News tab** aggregates headlines across every stock on your watchlist,
 plus broader AI-industry news if you've added a NewsAPI key. It refreshes
@@ -705,7 +705,7 @@ verify it yourself.
     )
     checks = [
         ("Market data (prices, ratings, news)", True, "Built in — no key needed"),
-        ("AI-written analyst notes", settings.has_llm, "Add ANTHROPIC_API_KEY to .env"),
+        ("AI-written analyst notes", settings.has_llm, "Add GEMINI_API_KEY to .env"),
         ("Extra news & insider data (Finnhub)", settings.has_finnhub, "Add FINNHUB_API_KEY to .env"),
         ("Press & macro headline search (NewsAPI)", settings.has_newsapi, "Add NEWSAPI_KEY to .env"),
         ("Interest rates & inflation (FRED)", settings.has_fred, "Add FRED_API_KEY to .env"),

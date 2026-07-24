@@ -6,7 +6,7 @@ from analyst.data_sources.aggregator import get_industry_headlines
 
 def _settings(newsapi_key: str | None) -> Settings:
     return Settings(
-        anthropic_api_key=None,
+        gemini_api_key=None,
         finnhub_api_key=None,
         newsapi_key=newsapi_key,
         fred_api_key=None,

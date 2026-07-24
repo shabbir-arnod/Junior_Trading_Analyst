@@ -34,7 +34,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     if not settings.has_llm and not args.no_llm:
         print(
-            "Note: ANTHROPIC_API_KEY not set -- generating data-only report "
+            "Note: GEMINI_API_KEY not set -- generating data-only report "
             "(no AI narrative). See .env.example.",
             file=sys.stderr,
         )

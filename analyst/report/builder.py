@@ -64,7 +64,7 @@ def collect_ticker_report(
     narrative = None
     if include_llm and settings.has_llm:
         try:
-            narrative = generate_narrative(bundle, signal, macro, settings.anthropic_api_key)
+            narrative = generate_narrative(bundle, signal, macro, settings.gemini_api_key)
         except Exception as exc:
             narrative = f"_Narrative generation failed: {exc}_"
 
