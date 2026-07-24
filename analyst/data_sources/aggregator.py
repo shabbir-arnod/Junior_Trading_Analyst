@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from analyst.analysis.technicals import compute_price_snapshot
 from analyst.config import Settings
-from analyst.data_sources.base import MacroSnapshot, StockBundle
+from analyst.data_sources.base import MacroSnapshot, NewsItem, StockBundle
 from analyst.data_sources.finnhub_provider import FinnhubProvider
 from analyst.data_sources.fred_provider import FredProvider
 from analyst.data_sources.market_data import MarketDataProvider
@@ -17,6 +17,11 @@ from analyst.data_sources.newsapi_provider import NewsApiProvider
 MACRO_QUERY = (
     "(AI infrastructure OR semiconductor OR data center) AND "
     "(interest rate OR Federal Reserve OR inflation OR capex)"
+)
+
+AI_INDUSTRY_QUERY = (
+    '"artificial intelligence" OR "AI chip" OR "AI infrastructure" OR '
+    '"data center" OR GPU OR "AI accelerator" OR hyperscaler'
 )
 
 
@@ -113,3 +118,17 @@ def build_macro_snapshot(settings: Settings) -> MacroSnapshot:
         )
 
     return snapshot
+
+
+def get_industry_headlines(settings: Settings, limit: int = 20) -> list[NewsItem]:
+    """Broad AI-infrastructure industry headlines, not tied to one ticker.
+
+    Requires NEWSAPI_KEY; returns an empty list otherwise (callers fall back
+    to per-company news from build_bundle, which needs no key).
+    """
+    if not settings.has_newsapi:
+        return []
+    try:
+        return NewsApiProvider(settings.newsapi_key).search(AI_INDUSTRY_QUERY, limit=limit)
+    except Exception:
+        return []
