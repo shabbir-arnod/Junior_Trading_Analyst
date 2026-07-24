@@ -20,7 +20,7 @@ def _load_dotenv() -> None:
 
 @dataclass(frozen=True)
 class Settings:
-    anthropic_api_key: str | None
+    gemini_api_key: str | None
     finnhub_api_key: str | None
     newsapi_key: str | None
     fred_api_key: str | None
@@ -28,7 +28,7 @@ class Settings:
 
     @property
     def has_llm(self) -> bool:
-        return bool(self.anthropic_api_key)
+        return bool(self.gemini_api_key)
 
     @property
     def has_finnhub(self) -> bool:
@@ -46,7 +46,7 @@ class Settings:
 def load_settings(watchlist_path: Path | None = None) -> Settings:
     _load_dotenv()
     return Settings(
-        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
+        gemini_api_key=os.environ.get("GEMINI_API_KEY") or None,
         finnhub_api_key=os.environ.get("FINNHUB_API_KEY") or None,
         newsapi_key=os.environ.get("NEWSAPI_KEY") or None,
         fred_api_key=os.environ.get("FRED_API_KEY") or None,

@@ -27,7 +27,7 @@ public data and heuristics; always do your own diligence.
   timing note (e.g. "near 52-week high, chasing here is risky" vs.
   "near 52-week low with positive analyst sentiment -- possible value
   entry").
-- **AI-written analyst note** (optional, needs an Anthropic API key): a
+- **AI-written analyst note** (optional, needs a free Gemini API key): a
   short research note synthesized from the structured data above --
   executive summary, key drivers, macro read-through, risks, and bottom
   line -- explicitly grounded in only the fetched data, with no invented
@@ -74,7 +74,7 @@ Each optional key in `.env` unlocks more:
 
 | Key | Unlocks | Free tier |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | AI-written narrative analyst note | [console.anthropic.com](https://console.anthropic.com/) |
+| `GEMINI_API_KEY` | AI-written narrative analyst note | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (free) |
 | `FINNHUB_API_KEY` | Broader company news, sturdier insider-transaction data | [finnhub.io/register](https://finnhub.io/register) |
 | `NEWSAPI_KEY` | Wider press/deal/macro headline search | [newsapi.org/register](https://newsapi.org/register) |
 | `FRED_API_KEY` | Fed funds rate, CPI, 10-year Treasury yield | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) |

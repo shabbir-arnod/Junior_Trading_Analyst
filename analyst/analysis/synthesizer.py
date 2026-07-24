@@ -1,5 +1,5 @@
 """Turns structured data (StockBundle + StockSignal) into a written
-narrative using the Claude API. Optional: if no ANTHROPIC_API_KEY is
+narrative using the Gemini API. Optional: if no GEMINI_API_KEY is
 configured, callers should skip this and the report simply omits the
 narrative section.
 """
@@ -12,7 +12,9 @@ from dataclasses import asdict
 from analyst.analysis.signal import StockSignal
 from analyst.data_sources.base import MacroSnapshot, StockBundle
 
-MODEL = "claude-sonnet-5"
+# "-latest" alias so this keeps working as Google rolls out newer Flash
+# versions, instead of pinning to a dated model ID that gets deprecated.
+MODEL = "gemini-flash-latest"
 
 SYSTEM_PROMPT = """\
 You are a meticulous equity research analyst covering AI infrastructure \
@@ -63,20 +65,18 @@ def generate_narrative(
     macro: MacroSnapshot | None,
     api_key: str,
 ) -> str:
-    from anthropic import Anthropic
+    from google import genai
+    from google.genai import types
 
-    client = Anthropic(api_key=api_key)
+    client = genai.Client(api_key=api_key)
     data_json = _bundle_to_json(bundle, signal, macro)
 
-    response = client.messages.create(
+    response = client.models.generate_content(
         model=MODEL,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Ticker: {bundle.ticker}\n\nStructured data:\n{data_json}",
-            }
-        ],
+        contents=f"Ticker: {bundle.ticker}\n\nStructured data:\n{data_json}",
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=1024,
+        ),
     )
-    return "".join(block.text for block in response.content if getattr(block, "type", None) == "text").strip()
+    return (response.text or "").strip()

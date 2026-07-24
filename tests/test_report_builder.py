@@ -48,7 +48,7 @@ class FakeMarketDataProvider:
 @pytest.fixture
 def settings(tmp_path):
     return Settings(
-        anthropic_api_key=None,
+        gemini_api_key=None,
         finnhub_api_key=None,
         newsapi_key=None,
         fred_api_key=None,
