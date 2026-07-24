@@ -7,6 +7,8 @@ Then open the browser tab it launches (usually http://localhost:8501).
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
+from html import escape as html_escape
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,7 +17,7 @@ import streamlit as st
 from analyst.analysis.signal import StockSignal, compute_signal
 from analyst.analysis.synthesizer import generate_narrative
 from analyst.config import load_settings
-from analyst.data_sources.aggregator import build_bundle, build_macro_snapshot
+from analyst.data_sources.aggregator import build_bundle, build_macro_snapshot, get_industry_headlines
 from analyst.data_sources.base import StockBundle
 from analyst.data_sources.market_data import MarketDataProvider
 from analyst.report.builder import DISCLAIMER
@@ -52,6 +54,7 @@ VERDICT_BADGES = {k: f"{icon} {k}" for k, (_, icon) in VERDICT_TONE.items()}
 TIMEFRAMES = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "All": None}
 
 CACHE_TTL_SECONDS = 15 * 60
+NEWS_TTL_SECONDS = 7 * 24 * 60 * 60  # AI News tab refreshes on a weekly cadence
 DEMO_MODE = os.environ.get("JTA_DEMO", "").strip() in ("1", "true", "yes")
 
 APP_CSS = f"""
@@ -110,6 +113,18 @@ div[data-testid="stDataFrame"] {{ border-radius: 12px; overflow: hidden; }}
 .jta-row-delta.up {{ color: {COLOR_UP}; }}
 .jta-row-delta.down {{ color: {COLOR_DOWN}; }}
 .jta-row-delta.neutral {{ color: {COLOR_NEUTRAL}; }}
+
+.jta-news-row {{
+    background: {SURFACE}; border: 1px solid {BORDER_HAIRLINE}; border-radius: 14px;
+    padding: 12px 18px; margin-bottom: 8px;
+}}
+.jta-news-title a {{ color: {INK_PRIMARY}; font-weight: 600; text-decoration: none; }}
+.jta-news-title a:hover {{ text-decoration: underline; }}
+.jta-news-meta {{ display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 0.8rem; color: {INK_MUTED}; }}
+.jta-news-tag {{
+    background: {SURFACE_RAISED}; color: {INK_SECONDARY}; border-radius: 999px;
+    padding: 1px 10px; font-weight: 600; font-size: 0.72rem; letter-spacing: 0.02em;
+}}
 </style>
 """
 
@@ -130,6 +145,14 @@ def tone_of(value: float | None, epsilon: float = 0.0) -> str:
 
 def arrow(tone: str) -> str:
     return {"up": "▲", "down": "▼", "neutral": "•"}[tone]
+
+
+def safe_href(url: str | None) -> str | None:
+    """Only allow http(s) links into raw HTML -- blocks javascript: URIs
+    and similar from externally-sourced news links."""
+    if url and url.strip().lower().startswith(("http://", "https://")):
+        return url
+    return None
 
 
 def _apply_streamlit_secrets() -> None:
@@ -157,6 +180,19 @@ def fmt_price(value: float | None) -> str:
 
 def fmt_pct(value: float | None) -> str:
     return f"{value:+.1f}%" if value is not None else "n/a"
+
+
+def fmt_relative(dt: datetime | None) -> str:
+    if dt is None:
+        return "Date unknown"
+    days = (datetime.now(timezone.utc) - dt).days
+    if days <= 0:
+        return "Today"
+    if days == 1:
+        return "Yesterday"
+    if days < 7:
+        return f"{days} days ago"
+    return dt.strftime("%b %d, %Y")
 
 
 def fmt_big(value: float | None) -> str:
@@ -190,6 +226,42 @@ def fetch_macro_notes() -> tuple[list[str], list[str]]:
         for item in macro.headlines[:8]
     ]
     return macro.notes, headlines
+
+
+@st.cache_data(ttl=NEWS_TTL_SECONDS, show_spinner=False)
+def fetch_weekly_ai_news(tickers: tuple[str, ...]) -> tuple[list[dict], datetime]:
+    """AI-industry news across the whole watchlist plus broad industry
+    headlines. Cached for a week so the tab refreshes on that cadence;
+    the UI also offers a manual "Refresh now" button that clears this
+    cache early.
+    """
+    settings = load_settings()
+    market = _make_provider()
+    seen_titles: set[str] = set()
+    items: list[dict] = []
+
+    for ticker in tickers:
+        try:
+            for n in market.get_news(ticker, limit=6):
+                if n.title not in seen_titles:
+                    seen_titles.add(n.title)
+                    items.append({
+                        "title": n.title, "publisher": n.publisher, "link": n.link,
+                        "published_at": n.published_at, "tag": ticker,
+                    })
+        except Exception:
+            continue
+
+    for n in get_industry_headlines(settings, limit=25):
+        if n.title not in seen_titles:
+            seen_titles.add(n.title)
+            items.append({
+                "title": n.title, "publisher": n.publisher, "link": n.link,
+                "published_at": n.published_at, "tag": "AI Industry",
+            })
+
+    items.sort(key=lambda d: d["published_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return items, datetime.now(timezone.utc)
 
 
 def price_chart(history: pd.DataFrame, lookback_days: int | None, show_ma: bool) -> go.Figure:
@@ -244,8 +316,8 @@ def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.
         f"""
         <div class="jta-hero">
           <div class="jta-hero-top">
-            <span class="jta-hero-ticker">{bundle.ticker}</span>
-            <span class="jta-hero-company">{bundle.company_name or ""}</span>
+            <span class="jta-hero-ticker">{html_escape(bundle.ticker)}</span>
+            <span class="jta-hero-company">{html_escape(bundle.company_name or "")}</span>
           </div>
           <div class="jta-hero-price">{fmt_price(price.current_price if price else None)}</div>
           <div class="jta-hero-delta {day_tone}">{arrow(day_tone)} {fmt_pct(price.day_change_pct if price else None)} today</div>
@@ -440,8 +512,8 @@ def render_dashboard(watchlist: Watchlist, settings):
         signal_tone, signal_icon = VERDICT_TONE.get(signal.verdict, ("neutral", "⚫"))
         row_html.append(
             f'<div class="jta-row">'
-            f'<div class="jta-row-left"><span class="jta-row-ticker">{bundle.ticker}</span>'
-            f'<span class="jta-row-name">{bundle.company_name or ""}</span></div>'
+            f'<div class="jta-row-left"><span class="jta-row-ticker">{html_escape(bundle.ticker)}</span>'
+            f'<span class="jta-row-name">{html_escape(bundle.company_name or "")}</span></div>'
             f'<div class="jta-row-signal">{signal_icon} {signal.verdict}</div>'
             f'<div class="jta-row-right"><span class="jta-row-price">{fmt_price(price.current_price if price else None)}</span>'
             f'<span class="jta-row-delta {day_tone}">{arrow(day_tone)} {fmt_pct(price.day_change_pct if price else None)}</span></div>'
@@ -486,6 +558,71 @@ def render_dashboard(watchlist: Watchlist, settings):
                             st.session_state[note_key] = f"_AI note failed: {exc}_"
                 st.subheader("Analyst note (AI-written)")
                 st.markdown(st.session_state[note_key])
+
+    st.markdown("---")
+    st.markdown(DISCLAIMER)
+
+
+def render_ai_news(watchlist: Watchlist, settings):
+    st.title("🗞️ AI News")
+    st.caption(
+        "Headlines about your tracked AI infrastructure stocks and the broader AI industry, "
+        "with the original source and date on every item. Refreshes weekly — use the button "
+        "below for an update sooner."
+    )
+    if DEMO_MODE:
+        st.warning("**Demo mode** — these headlines are synthetic placeholders, not real news.")
+    if not settings.has_newsapi:
+        st.caption(
+            "ℹ️ Add NEWSAPI_KEY to unlock broader industry headlines (deals, regulation, "
+            "macro) beyond each company's own news feed. See the Help tab."
+        )
+
+    all_tickers = tuple(watchlist.all_tickers())
+    if not all_tickers:
+        st.info("Your watchlist is empty — add stocks in the Watchlist tab first.")
+        return
+
+    if st.button("🔄 Refresh now", key="refresh_ai_news"):
+        fetch_weekly_ai_news.clear()
+
+    with st.spinner("Gathering AI news…"):
+        items, fetched_at = fetch_weekly_ai_news(all_tickers)
+
+    st.caption(f"Last refreshed: {fetched_at.strftime('%b %d, %Y %H:%M UTC')} · auto-refreshes weekly")
+
+    if not items:
+        st.info("No news found right now — try refreshing in a bit.")
+        return
+
+    tags = ["AI Industry"] + list(all_tickers)
+    picked = st.multiselect("Filter by stock", tags, default=[], placeholder="All stocks + AI industry")
+    shown = [i for i in items if not picked or i["tag"] in picked]
+    display_limit = 60
+
+    st.caption(
+        f"Showing {min(len(shown), display_limit)} of {len(shown)} matching headlines "
+        f"({len(items)} total from the last refresh)."
+    )
+    for item in shown[:display_limit]:
+        source = html_escape(item["publisher"] or "Unknown source")
+        title = html_escape(item["title"])
+        tag = html_escape(item["tag"])
+        link = safe_href(item["link"])
+        title_html = f'<a href="{link}" target="_blank" rel="noopener noreferrer">{title}</a>' if link else title
+        st.markdown(
+            f"""
+            <div class="jta-news-row">
+              <div class="jta-news-title">{title_html}</div>
+              <div class="jta-news-meta">
+                <span class="jta-news-tag">{tag}</span>
+                <span>📰 {source}</span>
+                <span>· {fmt_relative(item["published_at"])}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
     st.markdown(DISCLAIMER)
@@ -555,6 +692,12 @@ buy today than the same signal after a pullback.
 **The AI-written analyst note** (optional) is a short research memo written by
 Claude from the same data shown on screen — it never invents numbers.
 
+**The AI News tab** aggregates headlines across every stock on your watchlist,
+plus broader AI-industry news if you've added a NewsAPI key. It refreshes
+automatically about once a week (there's also a manual "Refresh now" button),
+and every headline shows its original source and publish date so you can go
+verify it yourself.
+
 ---
 
 ### Your data connections
@@ -580,9 +723,13 @@ def main():
     settings = load_settings()
     watchlist = Watchlist.load(settings.watchlist_path)
 
-    tab_dash, tab_watch, tab_help = st.tabs(["📊 Dashboard", "📋 Watchlist", "ℹ️ Help"])
+    tab_dash, tab_news, tab_watch, tab_help = st.tabs(
+        ["📊 Dashboard", "🗞️ AI News", "📋 Watchlist", "ℹ️ Help"]
+    )
     with tab_dash:
         render_dashboard(watchlist, settings)
+    with tab_news:
+        render_ai_news(watchlist, settings)
     with tab_watch:
         render_watchlist_editor(watchlist)
     with tab_help:
