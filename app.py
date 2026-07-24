@@ -23,23 +23,113 @@ from analyst.universe import Watchlist
 
 st.set_page_config(page_title="Junior Trading Analyst", page_icon="📈", layout="wide")
 
-# Chart colors: fixed categorical assignment (see dataviz palette reference).
-COLOR_CLOSE = "#2a78d6"   # blue   - price
-COLOR_SMA50 = "#1baf7a"   # aqua   - 50-day average
-COLOR_SMA200 = "#eda100"  # yellow - 200-day average
-COLOR_GRID = "#e1e0d9"
+# Dark-surface palette (validated status/ink tokens; see dataviz skill reference).
+PAGE_BG = "#0d0d0d"
+SURFACE = "#1a1a19"
+SURFACE_RAISED = "#232322"
+INK_PRIMARY = "#ffffff"
+INK_SECONDARY = "#c3c2b7"
+INK_MUTED = "#898781"
+GRID_HAIRLINE = "#2c2c2a"
+BORDER_HAIRLINE = "rgba(255,255,255,0.10)"
 
-VERDICT_BADGES = {
-    "Strongly Bullish": "🟢 Strongly Bullish",
-    "Bullish": "🟢 Bullish",
-    "Neutral": "⚪ Neutral",
-    "Bearish": "🔴 Bearish",
-    "Strongly Bearish": "🔴 Strongly Bearish",
-    "Unrated": "⚫ Unrated",
+COLOR_UP = "#0ca30c"       # status: good  -- price/score up, bullish
+COLOR_DOWN = "#d03b3b"     # status: critical -- price/score down, bearish
+COLOR_NEUTRAL = "#898781"  # muted -- flat / no signal
+COLOR_SMA50 = "#3987e5"    # categorical slot 1 (dark step) -- 50-day average
+COLOR_SMA200 = "#c98500"   # categorical slot 3 (dark step) -- 200-day average
+
+VERDICT_TONE = {
+    "Strongly Bullish": ("up", "🟢"),
+    "Bullish": ("up", "🟢"),
+    "Neutral": ("neutral", "⚪"),
+    "Bearish": ("down", "🔴"),
+    "Strongly Bearish": ("down", "🔴"),
+    "Unrated": ("neutral", "⚫"),
 }
+VERDICT_BADGES = {k: f"{icon} {k}" for k, (_, icon) in VERDICT_TONE.items()}
+
+TIMEFRAMES = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "All": None}
 
 CACHE_TTL_SECONDS = 15 * 60
 DEMO_MODE = os.environ.get("JTA_DEMO", "").strip() in ("1", "true", "yes")
+
+APP_CSS = f"""
+<style>
+.stApp {{ background: {PAGE_BG}; }}
+[data-testid="stSidebar"] {{ background: {SURFACE}; border-right: 1px solid {BORDER_HAIRLINE}; }}
+[data-testid="stMetric"] {{
+    background: {SURFACE}; border: 1px solid {BORDER_HAIRLINE}; border-radius: 14px;
+    padding: 14px 16px;
+}}
+div[data-testid="stExpander"] {{
+    background: {SURFACE}; border: 1px solid {BORDER_HAIRLINE}; border-radius: 16px;
+    overflow: hidden;
+}}
+.stButton > button, .stFormSubmitButton > button {{
+    border-radius: 999px; font-weight: 600;
+}}
+div[data-testid="stDataFrame"] {{ border-radius: 12px; overflow: hidden; }}
+
+.jta-hero {{
+    background: {SURFACE}; border: 1px solid {BORDER_HAIRLINE}; border-radius: 20px;
+    padding: 20px 24px; margin-bottom: 14px;
+}}
+.jta-hero-top {{ display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }}
+.jta-hero-ticker {{ font-size: 1.05rem; font-weight: 700; color: {INK_PRIMARY}; letter-spacing: 0.02em; }}
+.jta-hero-company {{ font-size: 0.9rem; color: {INK_MUTED}; }}
+.jta-hero-price {{ font-size: 2.6rem; font-weight: 700; color: {INK_PRIMARY}; line-height: 1.1; }}
+.jta-hero-delta {{ display: inline-flex; align-items: center; gap: 4px; margin-top: 6px;
+    font-size: 1rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }}
+.jta-hero-delta.up {{ color: {COLOR_UP}; background: rgba(12,163,12,0.14); }}
+.jta-hero-delta.down {{ color: {COLOR_DOWN}; background: rgba(208,59,59,0.14); }}
+.jta-hero-delta.neutral {{ color: {COLOR_NEUTRAL}; background: rgba(137,135,129,0.14); }}
+
+.jta-chip-row {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }}
+.jta-chip {{
+    background: {SURFACE_RAISED}; border-left: 3px solid {COLOR_NEUTRAL}; border-radius: 10px;
+    padding: 8px 14px; min-width: 120px;
+}}
+.jta-chip.up {{ border-left-color: {COLOR_UP}; }}
+.jta-chip.down {{ border-left-color: {COLOR_DOWN}; }}
+.jta-chip-label {{ font-size: 0.72rem; color: {INK_MUTED}; text-transform: uppercase; letter-spacing: 0.04em; }}
+.jta-chip-value {{ font-size: 1.05rem; font-weight: 600; color: {INK_PRIMARY}; }}
+
+.jta-row {{
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: {SURFACE}; border: 1px solid {BORDER_HAIRLINE}; border-radius: 14px;
+    padding: 12px 18px; margin-bottom: 8px;
+}}
+.jta-row-left {{ display: flex; flex-direction: column; min-width: 90px; }}
+.jta-row-ticker {{ font-weight: 700; color: {INK_PRIMARY}; font-size: 1rem; }}
+.jta-row-name {{ font-size: 0.78rem; color: {INK_MUTED}; }}
+.jta-row-signal {{ font-size: 0.9rem; color: {INK_SECONDARY}; flex: 1; text-align: center; }}
+.jta-row-right {{ display: flex; flex-direction: column; align-items: flex-end; min-width: 100px; }}
+.jta-row-price {{ font-weight: 700; color: {INK_PRIMARY}; font-size: 1rem; }}
+.jta-row-delta {{ font-size: 0.85rem; font-weight: 600; }}
+.jta-row-delta.up {{ color: {COLOR_UP}; }}
+.jta-row-delta.down {{ color: {COLOR_DOWN}; }}
+.jta-row-delta.neutral {{ color: {COLOR_NEUTRAL}; }}
+</style>
+"""
+
+
+def inject_css() -> None:
+    st.markdown(APP_CSS, unsafe_allow_html=True)
+
+
+def tone_of(value: float | None, epsilon: float = 0.0) -> str:
+    if value is None:
+        return "neutral"
+    if value > epsilon:
+        return "up"
+    if value < -epsilon:
+        return "down"
+    return "neutral"
+
+
+def arrow(tone: str) -> str:
+    return {"up": "▲", "down": "▼", "neutral": "•"}[tone]
 
 
 def _apply_streamlit_secrets() -> None:
@@ -102,27 +192,46 @@ def fetch_macro_notes() -> tuple[list[str], list[str]]:
     return macro.notes, headlines
 
 
-def price_chart(ticker: str, history: pd.DataFrame) -> go.Figure:
-    closes = history["Close"].dropna()
-    sma50 = closes.rolling(50).mean()
-    sma200 = closes.rolling(200).mean()
+def price_chart(history: pd.DataFrame, lookback_days: int | None, show_ma: bool) -> go.Figure:
+    closes_full = history["Close"].dropna()
+    sma50 = closes_full.rolling(50).mean()
+    sma200 = closes_full.rolling(200).mean()
+
+    closes = closes_full if lookback_days is None else closes_full.tail(lookback_days)
+    trend = tone_of(closes.iloc[-1] - closes.iloc[0]) if len(closes) >= 2 else "neutral"
+    line_color = {"up": COLOR_UP, "down": COLOR_DOWN, "neutral": COLOR_NEUTRAL}[trend]
+    fill_color = {"up": "rgba(12,163,12,0.12)", "down": "rgba(208,59,59,0.12)",
+                  "neutral": "rgba(137,135,129,0.10)"}[trend]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=closes.index, y=closes, name="Close",
-                             line=dict(color=COLOR_CLOSE, width=2), hovertemplate="%{y:$,.2f}<extra>Close</extra>"))
-    fig.add_trace(go.Scatter(x=sma50.index, y=sma50, name="50-day avg",
-                             line=dict(color=COLOR_SMA50, width=2), hovertemplate="%{y:$,.2f}<extra>50-day avg</extra>"))
-    fig.add_trace(go.Scatter(x=sma200.index, y=sma200, name="200-day avg",
-                             line=dict(color=COLOR_SMA200, width=2), hovertemplate="%{y:$,.2f}<extra>200-day avg</extra>"))
+    fig.add_trace(go.Scatter(
+        x=closes.index, y=closes, name="Close", fill="tozeroy",
+        fillcolor=fill_color, line=dict(color=line_color, width=2.5),
+        hovertemplate="%{y:$,.2f}<extra>Close</extra>",
+    ))
+    if show_ma:
+        fig.add_trace(go.Scatter(
+            x=sma50.reindex(closes.index).index, y=sma50.reindex(closes.index), name="50-day avg",
+            line=dict(color=COLOR_SMA50, width=1.5), hovertemplate="%{y:$,.2f}<extra>50-day avg</extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=sma200.reindex(closes.index).index, y=sma200.reindex(closes.index), name="200-day avg",
+            line=dict(color=COLOR_SMA200, width=1.5), hovertemplate="%{y:$,.2f}<extra>200-day avg</extra>",
+        ))
+
     fig.update_layout(
-        height=380,
-        margin=dict(l=10, r=10, t=30, b=10),
+        height=340,
+        margin=dict(l=10, r=10, t=10, b=10),
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-        yaxis=dict(title=None, gridcolor=COLOR_GRID, tickprefix="$"),
-        xaxis=dict(title=None, showgrid=False),
+        showlegend=show_ma,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0,
+                    font=dict(color=INK_SECONDARY), bgcolor="rgba(0,0,0,0)"),
+        yaxis=dict(title=None, gridcolor=GRID_HAIRLINE, tickprefix="$",
+                   tickfont=dict(color=INK_MUTED), zeroline=False, range=[closes.min() * 0.97, closes.max() * 1.03]),
+        xaxis=dict(title=None, showgrid=False, tickfont=dict(color=INK_MUTED)),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=INK_PRIMARY),
     )
     return fig
 
@@ -130,23 +239,48 @@ def price_chart(ticker: str, history: pd.DataFrame) -> go.Figure:
 def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.DataFrame | None):
     price, analyst, insider, fin = bundle.price, bundle.analyst, bundle.insider, bundle.financials
 
-    top = st.columns(4)
-    top[0].metric(
-        "Price",
-        fmt_price(price.current_price if price else None),
-        fmt_pct(price.day_change_pct if price else None),
+    day_tone = tone_of(price.day_change_pct if price else None)
+    st.markdown(
+        f"""
+        <div class="jta-hero">
+          <div class="jta-hero-top">
+            <span class="jta-hero-ticker">{bundle.ticker}</span>
+            <span class="jta-hero-company">{bundle.company_name or ""}</span>
+          </div>
+          <div class="jta-hero-price">{fmt_price(price.current_price if price else None)}</div>
+          <div class="jta-hero-delta {day_tone}">{arrow(day_tone)} {fmt_pct(price.day_change_pct if price else None)} today</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    top[1].metric("Signal", signal.verdict,
-                  f"score {signal.composite_score:+.2f}" if signal.composite_score is not None else None,
-                  delta_color="off")
-    top[2].metric("Analyst target", fmt_price(analyst.target_mean if analyst else None),
-                  fmt_pct(analyst.upside_pct if analyst else None))
-    top[3].metric("Market cap", fmt_big(price.market_cap if price else None))
+
+    signal_tone, signal_icon = VERDICT_TONE.get(signal.verdict, ("neutral", "⚫"))
+    chips = [
+        ("Signal", f"{signal_icon} {signal.verdict}", signal_tone),
+        ("Score", f"{signal.composite_score:+.2f}" if signal.composite_score is not None else "n/a", signal_tone),
+        ("Analyst target", fmt_price(analyst.target_mean if analyst else None),
+         tone_of(analyst.upside_pct if analyst else None)),
+        ("Market cap", fmt_big(price.market_cap if price else None), "neutral"),
+    ]
+    chip_html = "".join(
+        f'<div class="jta-chip {tone}"><div class="jta-chip-label">{label}</div>'
+        f'<div class="jta-chip-value">{value}</div></div>'
+        for label, value, tone in chips
+    )
+    st.markdown(f'<div class="jta-chip-row">{chip_html}</div>', unsafe_allow_html=True)
 
     st.info(f"**Timing view:** {signal.timing_note}")
 
     if history is not None and not history.empty:
-        st.plotly_chart(price_chart(bundle.ticker, history), width="stretch")
+        ctrl_left, ctrl_right = st.columns([3, 1])
+        with ctrl_left:
+            timeframe = st.pills(
+                "Timeframe", list(TIMEFRAMES.keys()), default="1Y", key=f"tf_{bundle.ticker}",
+                label_visibility="collapsed",
+            ) or "1Y"
+        with ctrl_right:
+            show_ma = st.toggle("Moving averages", value=False, key=f"ma_{bundle.ticker}")
+        st.plotly_chart(price_chart(history, TIMEFRAMES[timeframe], show_ma), width="stretch")
         with st.expander("View chart data as a table"):
             table = history[["Close"]].dropna().tail(90).copy()
             table.index = table.index.strftime("%Y-%m-%d")
@@ -285,6 +419,7 @@ def render_dashboard(watchlist: Watchlist, settings):
 
     st.subheader("Watchlist at a glance")
     summary_rows = []
+    row_html = []
     for bundle, signal, _ in results:
         price, analyst = bundle.price, bundle.analyst
         pos = None
@@ -301,22 +436,36 @@ def render_dashboard(watchlist: Watchlist, settings):
             "Analyst upside": analyst.upside_pct if analyst else None,
             "52w position": pos,
         })
+        day_tone = tone_of(price.day_change_pct if price else None)
+        signal_tone, signal_icon = VERDICT_TONE.get(signal.verdict, ("neutral", "⚫"))
+        row_html.append(
+            f'<div class="jta-row">'
+            f'<div class="jta-row-left"><span class="jta-row-ticker">{bundle.ticker}</span>'
+            f'<span class="jta-row-name">{bundle.company_name or ""}</span></div>'
+            f'<div class="jta-row-signal">{signal_icon} {signal.verdict}</div>'
+            f'<div class="jta-row-right"><span class="jta-row-price">{fmt_price(price.current_price if price else None)}</span>'
+            f'<span class="jta-row-delta {day_tone}">{arrow(day_tone)} {fmt_pct(price.day_change_pct if price else None)}</span></div>'
+            f'</div>'
+        )
+    st.markdown("".join(row_html), unsafe_allow_html=True)
+
     summary = pd.DataFrame(summary_rows)
-    st.dataframe(
-        summary,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "Price": st.column_config.NumberColumn(format="$%.2f"),
-            "Today": st.column_config.NumberColumn(format="%+.1f%%"),
-            "Score": st.column_config.NumberColumn(format="%+.2f", help="-1 (very bearish) to +1 (very bullish)"),
-            "Analyst upside": st.column_config.NumberColumn(format="%+.1f%%"),
-            "52w position": st.column_config.ProgressColumn(
-                format="%.0f%%", min_value=0, max_value=100,
-                help="Where today's price sits in the 52-week range (100% = at the high)",
-            ),
-        },
-    )
+    with st.expander("View as sortable table"):
+        st.dataframe(
+            summary,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Price": st.column_config.NumberColumn(format="$%.2f"),
+                "Today": st.column_config.NumberColumn(format="%+.1f%%"),
+                "Score": st.column_config.NumberColumn(format="%+.2f", help="-1 (very bearish) to +1 (very bullish)"),
+                "Analyst upside": st.column_config.NumberColumn(format="%+.1f%%"),
+                "52w position": st.column_config.ProgressColumn(
+                    format="%.0f%%", min_value=0, max_value=100,
+                    help="Where today's price sits in the 52-week range (100% = at the high)",
+                ),
+            },
+        )
 
     st.subheader("Stock details")
     for bundle, signal, history in results:
@@ -426,6 +575,7 @@ Claude from the same data shown on screen — it never invents numbers.
 
 
 def main():
+    inject_css()
     _apply_streamlit_secrets()
     settings = load_settings()
     watchlist = Watchlist.load(settings.watchlist_path)
