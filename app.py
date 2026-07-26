@@ -206,6 +206,13 @@ def fmt_relative(dt: datetime | None) -> str:
     return dt.strftime("%b %d, %Y")
 
 
+def display_name_for(ticker: str, fallback: str | None) -> str:
+    """Commodities/indices get a fixed friendly name (Yahoo's own metadata
+    for futures contracts is inconsistent/ugly, e.g. rolling contract
+    months); stocks fall back to whatever yfinance returned."""
+    return COMMODITIES.get(ticker) or INDICES.get(ticker) or fallback or ""
+
+
 def fmt_big(value: float | None) -> str:
     if value is None:
         return "n/a"
@@ -345,6 +352,7 @@ def price_chart(history: pd.DataFrame, lookback_days: int | None, show_ma: bool)
 
 def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.DataFrame | None):
     price, analyst, insider, fin = bundle.price, bundle.analyst, bundle.insider, bundle.financials
+    display_name = display_name_for(bundle.ticker, bundle.company_name)
 
     day_tone = tone_of(price.day_change_pct if price else None)
     st.markdown(
@@ -352,7 +360,7 @@ def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.
         <div class="jta-hero">
           <div class="jta-hero-top">
             <span class="jta-hero-ticker">{html_escape(bundle.ticker)}</span>
-            <span class="jta-hero-company">{html_escape(bundle.company_name or "")}</span>
+            <span class="jta-hero-company">{html_escape(display_name)}</span>
           </div>
           <div class="jta-hero-price">{fmt_price(price.current_price if price else None)}</div>
           <div class="jta-hero-delta {day_tone}">{arrow(day_tone)} {fmt_pct(price.day_change_pct if price else None)} today</div>
@@ -482,12 +490,24 @@ def render_market_section(title: str, mapping: dict[str, str]):
 def render_dashboard(watchlist: Watchlist, settings):
     st.sidebar.header("What to analyze")
     group = st.sidebar.radio(
-        "Stock group",
-        ["core", "emerging", "all"],
-        format_func={"core": "Core top 10", "emerging": "Emerging names", "all": "Everything"}.get,
+        "Group",
+        ["core", "emerging", "all", "commodities", "indices"],
+        format_func={
+            "core": "Core top 10", "emerging": "Emerging names", "all": "Everything",
+            "commodities": "🪙 Commodities", "indices": "📊 Indices",
+        }.get,
     )
-    available = watchlist.tickers(group)
-    tickers = st.sidebar.multiselect("Stocks (leave empty for the whole group)", available)
+    name_lookup = {**COMMODITIES, **INDICES}
+    if group == "commodities":
+        available = list(COMMODITIES.keys())
+    elif group == "indices":
+        available = list(INDICES.keys())
+    else:
+        available = watchlist.tickers(group)
+    tickers = st.sidebar.multiselect(
+        "Leave empty for the whole group", available,
+        format_func=lambda t: f"{name_lookup[t]} ({t})" if t in name_lookup else t,
+    )
     if not tickers:
         tickers = available
 
@@ -505,7 +525,8 @@ def render_dashboard(watchlist: Watchlist, settings):
     st.sidebar.caption("Data is cached for 15 minutes. Rerun after that for fresh numbers.")
 
     st.title("📈 Junior Trading Analyst")
-    st.caption("AI infrastructure stock tracker — prices, news, analyst views, insider activity, and a plain-English signal.")
+    st.caption("AI infrastructure stock tracker — prices, news, analyst views, insider activity, and a plain-English signal. "
+               "Also covers commodities and indices for broader market context.")
     if DEMO_MODE:
         st.warning("**Demo mode** — every number on this page is synthetic sample data, not real market data. "
                    "Launch without `JTA_DEMO=1` for live data.")
@@ -561,13 +582,14 @@ def render_dashboard(watchlist: Watchlist, settings):
     row_html = []
     for bundle, signal, _ in results:
         price, analyst = bundle.price, bundle.analyst
+        display_name = display_name_for(bundle.ticker, bundle.company_name)
         pos = None
         if price and price.current_price and price.fifty_two_week_high and price.fifty_two_week_low:
             span = price.fifty_two_week_high - price.fifty_two_week_low
             pos = (price.current_price - price.fifty_two_week_low) / span * 100 if span else None
         summary_rows.append({
             "Ticker": bundle.ticker,
-            "Company": bundle.company_name or "",
+            "Company": display_name,
             "Price": price.current_price if price else None,
             "Today": price.day_change_pct if price else None,
             "Signal": VERDICT_BADGES.get(signal.verdict, signal.verdict),
@@ -580,7 +602,7 @@ def render_dashboard(watchlist: Watchlist, settings):
         row_html.append(
             f'<div class="jta-row">'
             f'<div class="jta-row-left"><span class="jta-row-ticker">{html_escape(bundle.ticker)}</span>'
-            f'<span class="jta-row-name">{html_escape(bundle.company_name or "")}</span></div>'
+            f'<span class="jta-row-name">{html_escape(display_name)}</span></div>'
             f'<div class="jta-row-signal">{signal_icon} {signal.verdict}</div>'
             f'<div class="jta-row-right"><span class="jta-row-price">{fmt_price(price.current_price if price else None)}</span>'
             f'<span class="jta-row-delta {day_tone}">{arrow(day_tone)} {fmt_pct(price.day_change_pct if price else None)}</span></div>'
@@ -608,9 +630,10 @@ def render_dashboard(watchlist: Watchlist, settings):
 
     st.subheader("Stock details")
     for bundle, signal, history in results:
+        display_name = display_name_for(bundle.ticker, bundle.company_name)
         label = f"{VERDICT_BADGES.get(signal.verdict, signal.verdict)}  ·  {bundle.ticker}"
-        if bundle.company_name:
-            label += f" — {bundle.company_name}"
+        if display_name:
+            label += f" — {display_name}"
         with st.expander(label):
             render_ticker_details(bundle, signal, history)
             if want_ai and settings.has_llm:
