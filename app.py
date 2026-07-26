@@ -53,6 +53,17 @@ VERDICT_BADGES = {k: f"{icon} {k}" for k, (_, icon) in VERDICT_TONE.items()}
 
 TIMEFRAMES = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "All": None}
 
+# Yahoo Finance tickers for the Markets section (commodities futures + index
+# tickers) -- these aren't stocks, so they skip the analyst/insider/financials
+# fields entirely and just show price + trend.
+COMMODITIES = {"GC=F": "Gold (Futures)", "SI=F": "Silver (Futures)"}
+INDICES = {
+    "^GSPC": "S&P 500",
+    "^NDX": "Nasdaq 100",
+    "^DJI": "Dow Jones Industrial Average",
+    "^RUT": "Russell 2000",
+}
+
 CACHE_TTL_SECONDS = 15 * 60
 NEWS_TTL_SECONDS = 7 * 24 * 60 * 60  # AI News tab refreshes on a weekly cadence
 DEMO_MODE = os.environ.get("JTA_DEMO", "").strip() in ("1", "true", "yes")
@@ -215,6 +226,30 @@ def fetch_ticker_data(ticker: str) -> tuple[StockBundle, StockSignal, pd.DataFra
     except Exception:
         history = None
     return bundle, signal, history
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_market_snapshot(tickers: tuple[str, ...]) -> dict[str, dict]:
+    """Price + day change for non-stock instruments (commodities, indices).
+
+    Computed straight from the close-price series rather than yfinance's
+    .info dict, which is unreliable for futures/index tickers.
+    """
+    market = _make_provider()
+    out: dict[str, dict] = {}
+    for ticker in tickers:
+        try:
+            history = market.get_price_history(ticker, period="1y")
+            closes = history["Close"].dropna()
+            price = float(closes.iloc[-1]) if len(closes) >= 1 else None
+            change_pct = (
+                (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+                if len(closes) >= 2 and closes.iloc[-2] else None
+            )
+            out[ticker] = {"price": price, "change_pct": change_pct, "history": history}
+        except Exception:
+            out[ticker] = {"price": None, "change_pct": None, "history": None}
+    return out
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
@@ -419,6 +454,31 @@ def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.
                 st.caption(f"- {err}")
 
 
+def render_market_section(title: str, mapping: dict[str, str]):
+    """A row of price/change cards for non-stock instruments, each
+    expandable into a small trend-colored chart. No signal/analyst data --
+    these aren't stocks."""
+    st.subheader(title)
+    tickers = tuple(mapping.keys())
+    with st.spinner(f"Fetching {title.lower()}…"):
+        snapshot = fetch_market_snapshot(tickers)
+
+    for ticker, name in mapping.items():
+        data = snapshot.get(ticker, {})
+        price, change_pct, history = data.get("price"), data.get("change_pct"), data.get("history")
+        tone = tone_of(change_pct)
+        label = (
+            f"{arrow(tone)} {name} ({ticker}) — {fmt_price(price)} "
+            f"({fmt_pct(change_pct)})"
+        )
+        with st.expander(label):
+            if history is not None and not history.empty:
+                st.plotly_chart(price_chart(history, TIMEFRAMES["3M"], False), width="stretch",
+                                 key=f"chart_{ticker}")
+            else:
+                st.caption("No price history available right now.")
+
+
 def render_dashboard(watchlist: Watchlist, settings):
     st.sidebar.header("What to analyze")
     group = st.sidebar.radio(
@@ -449,6 +509,13 @@ def render_dashboard(watchlist: Watchlist, settings):
     if DEMO_MODE:
         st.warning("**Demo mode** — every number on this page is synthetic sample data, not real market data. "
                    "Launch without `JTA_DEMO=1` for live data.")
+
+    market_col1, market_col2 = st.columns(2)
+    with market_col1:
+        render_market_section("🪙 Commodities", COMMODITIES)
+    with market_col2:
+        render_market_section("📊 Indices", INDICES)
+    st.markdown("---")
 
     if not run and "last_run_tickers" not in st.session_state:
         st.info("👈 Pick a stock group in the sidebar and press **Run analysis** to get started.")
