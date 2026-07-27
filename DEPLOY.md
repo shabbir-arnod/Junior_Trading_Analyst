@@ -53,6 +53,33 @@ You can add the other optional keys the same way (`FINNHUB_API_KEY`,
 `NEWSAPI_KEY`, `FRED_API_KEY`). **Never** put these keys in the code or
 in GitHub — the Secrets box is the safe place for them.
 
+## Optional: real background alerts (even when the app isn't open)
+
+The Alerts tab works immediately inside the app, but a Streamlit Cloud app
+only runs while a page is actually open in someone's browser — it can't
+notify you in the background on its own. A scheduled GitHub Actions job
+(already included: `.github/workflows/alerts.yml`) closes that gap by
+checking your alert rules on a timer and posting to a webhook, independent
+of whether the app is open.
+
+1. **Create a webhook** — takes about a minute:
+   - **Slack**: your workspace → Apps → search "Incoming Webhooks" → Add to
+     Slack → pick a channel → copy the Webhook URL.
+   - **Discord**: a channel's settings → Integrations → Webhooks → New
+     Webhook → copy the Webhook URL.
+2. **Add it as a GitHub secret** (not a Streamlit secret — this one's for
+   the GitHub Actions job): on your repo page, go to **Settings → Secrets
+   and variables → Actions → New repository secret**. Name it
+   `ALERT_WEBHOOK_URL` and paste the webhook URL as the value.
+3. **Commit real alert rules to `config/alerts.yaml`.** Rules added
+   through the deployed app don't persist (same ephemeral-filesystem
+   caveat as the Watchlist tab below) — edit `config/alerts.yaml` directly
+   on GitHub, or run the app locally and `git push` the file it writes.
+4. That's it — the workflow runs on its own schedule (roughly market open
+   and close on weekdays) and messages your Slack/Discord channel whenever
+   a rule triggers. You can also trigger it manually any time from the
+   repo's **Actions** tab → "Check price/signal alerts" → **Run workflow**.
+
 ## Things worth knowing
 
 - **Public link**: anyone with the URL can open your app. In the app's

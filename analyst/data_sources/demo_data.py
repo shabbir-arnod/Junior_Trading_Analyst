@@ -17,9 +17,12 @@ import pandas as pd
 from analyst.data_sources.base import (
     AnalystView,
     CompanyFinancials,
+    EarningsOutlook,
+    EpsEstimate,
     InsiderActivity,
     InsiderTransaction,
     NewsItem,
+    OptionsSnapshot,
 )
 
 _DEMO_HEADLINES = [
@@ -148,3 +151,45 @@ class DemoMarketDataProvider:
                 summary=None,
             ))
         return items
+
+    def get_options_snapshot(self, symbol: str, info: dict | None = None) -> OptionsSnapshot:
+        rng = self._rng(symbol)
+        current_price = float(rng.uniform(20, 400))
+        put_call_ratio = float(rng.uniform(0.5, 1.6))
+        atm_iv = float(rng.uniform(25, 70))
+        realized_vol = float(atm_iv * rng.uniform(0.7, 1.15))
+        return OptionsSnapshot(
+            ticker=symbol,
+            expiration="(demo)",
+            current_price=current_price,
+            put_call_volume_ratio=put_call_ratio,
+            put_call_oi_ratio=put_call_ratio * float(rng.uniform(0.85, 1.15)),
+            atm_implied_vol_pct=atm_iv,
+            realized_vol_30d_pct=realized_vol,
+            call_volume=float(rng.integers(1_000, 60_000)),
+            put_volume=float(rng.integers(1_000, 60_000)),
+        )
+
+    def get_earnings_outlook(self, symbol: str) -> EarningsOutlook:
+        rng = self._rng(symbol)
+        now = datetime.now(timezone.utc)
+        days_out = int(rng.integers(-5, 90))
+        next_date = now + timedelta(days=days_out)
+        revision_pct = float(rng.uniform(-8, 8))
+        direction = "up" if revision_pct > 1 else ("down" if revision_pct < -1 else "flat")
+        estimates = []
+        for label in ("Current Qtr.", "Next Qtr.", "Current Year", "Next Year"):
+            base = float(rng.uniform(0.5, 12))
+            estimates.append(EpsEstimate(
+                period_label=label,
+                current_estimate=round(base, 2),
+                estimate_90d_ago=round(base / (1 + revision_pct / 100), 2),
+                num_analysts=int(rng.integers(5, 40)),
+            ))
+        return EarningsOutlook(
+            ticker=symbol,
+            next_earnings_date=next_date,
+            days_until_earnings=days_out,
+            estimates=estimates,
+            revision_direction=direction,
+        )

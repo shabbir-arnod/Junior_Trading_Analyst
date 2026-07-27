@@ -29,3 +29,20 @@ def test_demo_news_is_watermarked():
     news = DemoMarketDataProvider().get_news("TSM")
     assert news
     assert all("[demo headline]" in item.title for item in news)
+
+
+def test_demo_options_snapshot_has_consistent_ratios():
+    snap = DemoMarketDataProvider().get_options_snapshot("NVDA")
+    assert snap.put_call_volume_ratio > 0
+    assert snap.atm_implied_vol_pct > 0
+    assert snap.realized_vol_30d_pct > 0
+    assert snap.expiration == "(demo)"
+
+
+def test_demo_earnings_outlook_revision_direction_matches_estimates():
+    outlook = DemoMarketDataProvider().get_earnings_outlook("AMD")
+    assert outlook.revision_direction in ("up", "down", "flat")
+    assert len(outlook.estimates) == 4
+    for est in outlook.estimates:
+        assert est.current_estimate > 0
+        assert est.num_analysts >= 5

@@ -32,6 +32,24 @@ public data and heuristics; always do your own diligence.
   executive summary, key drivers, macro read-through, risks, and bottom
   line -- explicitly grounded in only the fetched data, with no invented
   numbers.
+- **Signal track record (backtest)**: historically, when this stock's
+  price-only signal (momentum + trend -- analyst/insider data isn't
+  available as history) said "Bullish," what actually happened to the
+  price afterward? Bucketed by verdict with sample size, average forward
+  return, and hit rate, so the signal's reliability is checkable rather
+  than assumed.
+- **Options positioning**: put/call volume ratio and implied vs. 30-day
+  realized volatility, when the ticker has a listed options market.
+- **Relative strength**: a stock's 3-month momentum compared to the rest
+  of the watchlist and to the S&P 500 -- is it actually outperforming, or
+  just riding a rising tide?
+- **Earnings outlook**: days until the next print, plus whether analysts
+  have raised or cut EPS estimates over the last 90 days.
+- **Alerts**: price/signal conditions on any tracked ticker, checked live
+  in the app, with an optional scheduled GitHub Actions job + webhook
+  (Slack/Discord) so alerts fire even when the app isn't open.
+- **Commodities & Indices**: Gold, Silver, S&P 500, Nasdaq 100, Dow Jones,
+  and Russell 2000 get the same price/signal/chart treatment as stocks.
 
 ## Quick start (non-technical): the web dashboard
 
@@ -78,6 +96,7 @@ Each optional key in `.env` unlocks more:
 | `FINNHUB_API_KEY` | Broader company news, sturdier insider-transaction data | [finnhub.io/register](https://finnhub.io/register) |
 | `NEWSAPI_KEY` | Wider press/deal/macro headline search | [newsapi.org/register](https://newsapi.org/register) |
 | `FRED_API_KEY` | Fed funds rate, CPI, 10-year Treasury yield | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) |
+| `ALERT_WEBHOOK_URL` | Alerts post to Slack/Discord even when the app isn't open (via the scheduled GitHub Actions job) | A Slack or Discord incoming webhook URL -- see DEPLOY.md |
 
 ## Usage
 
@@ -111,9 +130,10 @@ itself doesn't need to change.
 app.py                      web dashboard (streamlit run app.py)
 start_dashboard.sh / .bat   one-click launchers (Mac/Linux and Windows)
 analyst/
-  cli.py                    entry point (report / watchlist / add / remove)
+  cli.py                    entry point (report / watchlist / add / remove / alerts-check)
   universe.py                watchlist loading & comment-preserving edits
   config.py                   .env loading
+  alerts.py                    alert rules: persistence, evaluation, webhook notify
   data_sources/
     base.py                    shared data models (PriceSnapshot, AnalystView, ...)
     market_data.py              yfinance provider (no key required)
@@ -125,10 +145,14 @@ analyst/
   analysis/
     technicals.py               52w/ATH-ATL, moving averages, momentum
     signal.py                   composite Bullish/Bearish scoring + timing note
-    synthesizer.py              Claude-powered narrative (optional)
+    backtest.py                  historical backtest of the price-only signal
+    relative_strength.py         momentum vs. peer group / S&P 500
+    synthesizer.py               Gemini-powered narrative (optional)
   report/
     builder.py                  assembles the final markdown report
 config/watchlist.yaml         tracked tickers (core / emerging groups)
+config/alerts.yaml            alert rules (empty by default)
+.github/workflows/alerts.yml  scheduled alert check -> webhook notify
 tests/                        pytest suite, fully mocked (no network needed)
 ```
 

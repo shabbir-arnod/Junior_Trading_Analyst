@@ -94,6 +94,45 @@ class CompanyFinancials:
 
 
 @dataclass
+class OptionsSnapshot:
+    """Options-market positioning, an informational read on what options
+    traders are pricing in -- not folded into the composite signal score
+    (there's no historical options data to backtest it against)."""
+
+    ticker: str
+    expiration: str | None = None
+    current_price: float | None = None
+    put_call_volume_ratio: float | None = None
+    put_call_oi_ratio: float | None = None
+    atm_implied_vol_pct: float | None = None
+    realized_vol_30d_pct: float | None = None
+    call_volume: float | None = None
+    put_volume: float | None = None
+
+
+@dataclass
+class EpsEstimate:
+    period_label: str  # e.g. "Current Qtr.", "Next Qtr.", "Current Year"
+    current_estimate: float | None = None
+    estimate_90d_ago: float | None = None
+    num_analysts: int | None = None
+
+
+@dataclass
+class EarningsOutlook:
+    """Next earnings date + whether analysts have been raising or cutting
+    estimates over the last 90 days (estimate revision momentum -- a
+    reasonably well-evidenced factor, distinct from the single-point-in-time
+    analyst rating already captured in AnalystView)."""
+
+    ticker: str
+    next_earnings_date: datetime | None = None
+    days_until_earnings: int | None = None
+    estimates: list[EpsEstimate] = field(default_factory=list)
+    revision_direction: str | None = None  # "up" | "down" | "flat"
+
+
+@dataclass
 class MacroSnapshot:
     headlines: list[NewsItem] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)

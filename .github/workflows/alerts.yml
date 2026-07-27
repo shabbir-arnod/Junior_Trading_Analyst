@@ -1,0 +1,39 @@
+name: Check price/signal alerts
+
+# Runs even when nobody has the Streamlit app open -- a Streamlit Cloud
+# app only executes while a page is being viewed, so this scheduled job
+# is what makes alerts genuinely "background" rather than "check on load."
+#
+# Requires config/alerts.yaml to be committed with real rules (rules
+# added via the deployed app don't persist -- see that file's comments),
+# and an ALERT_WEBHOOK_URL repository secret (Settings -> Secrets and
+# variables -> Actions -> New repository secret) pointing at a Slack or
+# Discord incoming webhook to actually get notified. Without that secret,
+# this job still runs and logs results, it just can't push a message
+# anywhere.
+
+on:
+  schedule:
+    - cron: "30 13,20 * * 1-5"  # ~9:30am and 4:00pm US/Eastern on weekdays
+  workflow_dispatch: {}
+
+jobs:
+  check-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Evaluate alerts
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python -m analyst.cli alerts-check

@@ -15,10 +15,20 @@ import pandas as pd
 from analyst.data_sources.base import (
     AnalystView,
     CompanyFinancials,
+    EarningsOutlook,
+    EpsEstimate,
     InsiderActivity,
     InsiderTransaction,
     NewsItem,
+    OptionsSnapshot,
 )
+
+EARNINGS_PERIOD_LABELS = {
+    "0q": "Current Qtr.",
+    "+1q": "Next Qtr.",
+    "0y": "Current Year",
+    "+1y": "Next Year",
+}
 
 
 def _to_datetime(value) -> datetime | None:
@@ -30,6 +40,30 @@ def _to_datetime(value) -> datetime | None:
         return pd.to_datetime(value, utc=True).to_pydatetime()
     except (ValueError, TypeError, OverflowError):
         return None
+
+
+def _atm_implied_vol(calls: pd.DataFrame | None, puts: pd.DataFrame | None, current_price: float) -> float | None:
+    """Average of the call's and put's implied volatility at the strike
+    closest to the current price -- a simple at-the-money IV read."""
+    ivs = []
+    for df in (calls, puts):
+        if df is None or df.empty or "impliedVolatility" not in df.columns:
+            continue
+        idx = (df["strike"] - current_price).abs().idxmin()
+        iv = df.loc[idx, "impliedVolatility"]
+        if pd.notna(iv) and iv > 0:
+            ivs.append(float(iv) * 100)
+    return sum(ivs) / len(ivs) if ivs else None
+
+
+def _realized_volatility_pct(closes: pd.Series, window: int = 30) -> float | None:
+    """Annualized realized volatility from trailing daily returns, in the
+    same percentage units as implied volatility, so the two are directly
+    comparable."""
+    returns = closes.pct_change().dropna().tail(window)
+    if len(returns) < 5:
+        return None
+    return float(returns.std() * (252 ** 0.5) * 100)
 
 
 class MarketDataProvider:
@@ -186,3 +220,107 @@ class MarketDataProvider:
                 )
             )
         return items
+
+    def get_options_snapshot(self, symbol: str, info: dict | None = None) -> OptionsSnapshot:
+        """Options-market positioning (put/call ratios, implied vs. realized
+        volatility). Raises if the ticker has no listed options (true for
+        most futures/index tickers) -- callers should treat this as an
+        optional enrichment, same as insider/analyst data."""
+        t = self._ticker(symbol)
+        info = info if info is not None else self.get_info(symbol)
+        current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+        if current_price is None:
+            hist = t.history(period="5d", auto_adjust=False)
+            if hist is None or hist.empty:
+                raise ValueError(f"No price available for {symbol} options snapshot")
+            current_price = float(hist["Close"].iloc[-1])
+        current_price = float(current_price)
+
+        expirations = t.options
+        if not expirations:
+            raise ValueError(f"No options chain available for {symbol}")
+
+        today = datetime.now(timezone.utc).date()
+        chosen = next(
+            (exp for exp in expirations
+             if (datetime.strptime(exp, "%Y-%m-%d").date() - today).days >= 7),
+            expirations[0],
+        )
+
+        chain = t.option_chain(chosen)
+        calls, puts = chain.calls, chain.puts
+
+        call_volume = float(calls["volume"].fillna(0).sum()) if calls is not None else 0.0
+        put_volume = float(puts["volume"].fillna(0).sum()) if puts is not None else 0.0
+        call_oi = float(calls["openInterest"].fillna(0).sum()) if calls is not None else 0.0
+        put_oi = float(puts["openInterest"].fillna(0).sum()) if puts is not None else 0.0
+
+        hist_3mo = t.history(period="3mo", auto_adjust=False)
+        realized_vol = (
+            _realized_volatility_pct(hist_3mo["Close"])
+            if hist_3mo is not None and not hist_3mo.empty else None
+        )
+
+        return OptionsSnapshot(
+            ticker=symbol,
+            expiration=chosen,
+            current_price=current_price,
+            put_call_volume_ratio=(put_volume / call_volume) if call_volume else None,
+            put_call_oi_ratio=(put_oi / call_oi) if call_oi else None,
+            atm_implied_vol_pct=_atm_implied_vol(calls, puts, current_price),
+            realized_vol_30d_pct=realized_vol,
+            call_volume=call_volume,
+            put_volume=put_volume,
+        )
+
+    def get_earnings_outlook(self, symbol: str) -> EarningsOutlook:
+        outlook = EarningsOutlook(ticker=symbol)
+        t = self._ticker(symbol)
+
+        try:
+            calendar = t.calendar or {}
+        except Exception:
+            calendar = {}
+        earnings_dates = calendar.get("Earnings Date") or []
+        if earnings_dates:
+            next_date = min(earnings_dates)
+            outlook.next_earnings_date = datetime(
+                next_date.year, next_date.month, next_date.day, tzinfo=timezone.utc
+            )
+            outlook.days_until_earnings = (next_date - datetime.now(timezone.utc).date()).days
+
+        try:
+            trend_df = t.eps_trend
+        except Exception:
+            trend_df = None
+        try:
+            estimate_df = t.earnings_estimate
+        except Exception:
+            estimate_df = None
+
+        pct_changes = []
+        if trend_df is not None and not trend_df.empty:
+            for period, label in EARNINGS_PERIOD_LABELS.items():
+                if period not in trend_df.index:
+                    continue
+                row = trend_df.loc[period]
+                current = row.get("current")
+                ago_90 = row.get("90daysAgo")
+                current_f = float(current) if pd.notna(current) else None
+                ago_90_f = float(ago_90) if pd.notna(ago_90) else None
+                num_analysts = None
+                if estimate_df is not None and not estimate_df.empty and period in estimate_df.index:
+                    n = estimate_df.loc[period].get("numberOfAnalysts")
+                    num_analysts = int(n) if pd.notna(n) else None
+                outlook.estimates.append(EpsEstimate(
+                    period_label=label, current_estimate=current_f,
+                    estimate_90d_ago=ago_90_f, num_analysts=num_analysts,
+                ))
+                if current_f is not None and ago_90_f:
+                    pct_changes.append((current_f / ago_90_f - 1) * 100)
+
+        if pct_changes:
+            avg_change = sum(pct_changes) / len(pct_changes)
+            outlook.revision_direction = "up" if avg_change > 1 else ("down" if avg_change < -1 else "flat")
+
+        return outlook
