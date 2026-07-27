@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.yaml"
+DEFAULT_ALERTS_PATH = REPO_ROOT / "config" / "alerts.yaml"
 
 
 def _load_dotenv() -> None:
@@ -25,6 +26,8 @@ class Settings:
     newsapi_key: str | None
     fred_api_key: str | None
     watchlist_path: Path
+    alerts_path: Path = DEFAULT_ALERTS_PATH
+    alert_webhook_url: str | None = None
 
     @property
     def has_llm(self) -> bool:
@@ -42,8 +45,12 @@ class Settings:
     def has_fred(self) -> bool:
         return bool(self.fred_api_key)
 
+    @property
+    def has_alert_webhook(self) -> bool:
+        return bool(self.alert_webhook_url)
 
-def load_settings(watchlist_path: Path | None = None) -> Settings:
+
+def load_settings(watchlist_path: Path | None = None, alerts_path: Path | None = None) -> Settings:
     _load_dotenv()
     return Settings(
         gemini_api_key=os.environ.get("GEMINI_API_KEY") or None,
@@ -51,4 +58,6 @@ def load_settings(watchlist_path: Path | None = None) -> Settings:
         newsapi_key=os.environ.get("NEWSAPI_KEY") or None,
         fred_api_key=os.environ.get("FRED_API_KEY") or None,
         watchlist_path=watchlist_path or DEFAULT_WATCHLIST_PATH,
+        alerts_path=alerts_path or DEFAULT_ALERTS_PATH,
+        alert_webhook_url=os.environ.get("ALERT_WEBHOOK_URL") or None,
     )

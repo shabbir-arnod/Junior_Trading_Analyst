@@ -5,6 +5,7 @@ Usage:
     python -m analyst.cli watchlist
     python -m analyst.cli add TICKER --group core|emerging
     python -m analyst.cli remove TICKER
+    python -m analyst.cli alerts-check
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from analyst.alerts import AlertBook, evaluate_alerts, notify_webhook
 from analyst.config import load_settings
 from analyst.data_sources.market_data import MarketDataProvider
 from analyst.report.builder import build_report
@@ -87,6 +89,31 @@ def cmd_remove(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_alerts_check(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    book = AlertBook.load(settings.alerts_path)
+    if not book.rules:
+        print("No alert rules configured (config/alerts.yaml is empty). Nothing to check.", file=sys.stderr)
+        return 0
+
+    results = evaluate_alerts(book.rules, settings)
+    triggered = [r for r in results if r.triggered]
+
+    for r in results:
+        status = "TRIGGERED" if r.triggered else "ok"
+        if r.error:
+            status = f"error: {r.error}"
+        print(f"[{status}] {r.rule.describe()} -- now {r.current_value}")
+
+    if triggered and settings.has_alert_webhook:
+        sent = notify_webhook(settings.alert_webhook_url, triggered)
+        print(f"Webhook notification {'sent' if sent else 'FAILED to send'}.", file=sys.stderr)
+    elif triggered:
+        print("No ALERT_WEBHOOK_URL configured -- triggered alerts were only printed above.", file=sys.stderr)
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="analyst", description="AI infrastructure stock analyst agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -109,6 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
     remove_parser = subparsers.add_parser("remove", help="Remove a ticker from the watchlist")
     remove_parser.add_argument("ticker")
     remove_parser.set_defaults(func=cmd_remove)
+
+    alerts_parser = subparsers.add_parser(
+        "alerts-check", help="Evaluate config/alerts.yaml and notify ALERT_WEBHOOK_URL if any triggered"
+    )
+    alerts_parser.set_defaults(func=cmd_alerts_check)
 
     return parser
 

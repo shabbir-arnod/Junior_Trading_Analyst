@@ -14,11 +14,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from analyst.alerts import AlertBook, AlertResult, VALID_CONDITIONS, evaluate_rule, new_alert_rule
+from analyst.analysis.backtest import BacktestResult, backtest_price_signal
+from analyst.analysis.relative_strength import RelativeStrength, compute_relative_strength
 from analyst.analysis.signal import StockSignal, compute_signal
 from analyst.analysis.synthesizer import generate_narrative
 from analyst.config import load_settings
 from analyst.data_sources.aggregator import build_bundle, build_macro_snapshot, get_industry_headlines
-from analyst.data_sources.base import StockBundle
+from analyst.data_sources.base import EarningsOutlook, OptionsSnapshot, PriceSnapshot, StockBundle
 from analyst.data_sources.market_data import MarketDataProvider
 from analyst.report.builder import DISCLAIMER
 from analyst.universe import Watchlist
@@ -136,6 +139,27 @@ div[data-testid="stDataFrame"] {{ border-radius: 12px; overflow: hidden; }}
     background: {SURFACE_RAISED}; color: {INK_SECONDARY}; border-radius: 999px;
     padding: 1px 10px; font-weight: 600; font-size: 0.72rem; letter-spacing: 0.02em;
 }}
+
+.jta-bt-row {{
+    display: grid; grid-template-columns: 1.4fr 0.8fr 1fr 0.8fr; gap: 8px; align-items: center;
+    padding: 8px 12px; border-radius: 8px; margin-bottom: 4px; background: {SURFACE_RAISED};
+}}
+.jta-bt-row.header {{ background: transparent; color: {INK_MUTED}; font-size: 0.75rem;
+    text-transform: uppercase; letter-spacing: 0.03em; }}
+.jta-bt-verdict {{ font-weight: 600; color: {INK_PRIMARY}; }}
+.jta-bt-value.up {{ color: {COLOR_UP}; font-weight: 600; }}
+.jta-bt-value.down {{ color: {COLOR_DOWN}; font-weight: 600; }}
+.jta-bt-value.neutral {{ color: {INK_SECONDARY}; }}
+
+.jta-alert-row {{
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: {SURFACE}; border: 1px solid {BORDER_HAIRLINE}; border-radius: 12px;
+    padding: 10px 16px; margin-bottom: 8px;
+}}
+.jta-alert-row.triggered {{ border-color: {COLOR_DOWN}; background: rgba(208,59,59,0.10); }}
+.jta-alert-status {{ font-weight: 700; font-size: 0.85rem; }}
+.jta-alert-status.triggered {{ color: {COLOR_DOWN}; }}
+.jta-alert-status.ok {{ color: {COLOR_UP}; }}
 </style>
 """
 
@@ -233,6 +257,25 @@ def fetch_ticker_data(ticker: str) -> tuple[StockBundle, StockSignal, pd.DataFra
     except Exception:
         history = None
     return bundle, signal, history
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_options_snapshot(ticker: str) -> OptionsSnapshot | None:
+    """None (not an error banner) if the ticker simply has no listed
+    options -- true for most commodities/index tickers and plenty of
+    smaller stocks."""
+    try:
+        return _make_provider().get_options_snapshot(ticker)
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_earnings_outlook(ticker: str) -> EarningsOutlook | None:
+    try:
+        return _make_provider().get_earnings_outlook(ticker)
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
@@ -350,9 +393,19 @@ def price_chart(history: pd.DataFrame, lookback_days: int | None, show_ma: bool)
     return fig
 
 
-def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.DataFrame | None):
+def render_ticker_details(
+    bundle: StockBundle,
+    signal: StockSignal,
+    history: pd.DataFrame | None,
+    peer_prices: list[PriceSnapshot] | None = None,
+    benchmark_price: PriceSnapshot | None = None,
+):
     price, analyst, insider, fin = bundle.price, bundle.analyst, bundle.insider, bundle.financials
     display_name = display_name_for(bundle.ticker, bundle.company_name)
+
+    rel_strength = compute_relative_strength(price, peer_prices or [], benchmark_price)
+    options_snap = fetch_options_snapshot(bundle.ticker)
+    earnings = fetch_earnings_outlook(bundle.ticker)
 
     day_tone = tone_of(price.day_change_pct if price else None)
     st.markdown(
@@ -370,12 +423,36 @@ def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.
     )
 
     signal_tone, signal_icon = VERDICT_TONE.get(signal.verdict, ("neutral", "⚫"))
+
+    if rel_strength and rel_strength.vs_benchmark_pp is not None:
+        rel_value = f"{rel_strength.vs_benchmark_pp:+.1f}pp vs S&P"
+        rel_tone = tone_of(rel_strength.vs_benchmark_pp, epsilon=1.0)
+    else:
+        rel_value, rel_tone = "n/a", "neutral"
+
+    if options_snap and options_snap.put_call_volume_ratio is not None:
+        pcr = options_snap.put_call_volume_ratio
+        options_value = f"P/C {pcr:.2f}"
+        options_tone = "down" if pcr > 1.1 else ("up" if pcr < 0.7 else "neutral")
+    else:
+        options_value, options_tone = "n/a", "neutral"
+
+    if earnings and earnings.days_until_earnings is not None:
+        arrow_map = {"up": "↑", "down": "↓", "flat": "→"}
+        earnings_value = f"{earnings.days_until_earnings}d {arrow_map.get(earnings.revision_direction, '')}".strip()
+        earnings_tone = {"up": "up", "down": "down"}.get(earnings.revision_direction, "neutral")
+    else:
+        earnings_value, earnings_tone = "n/a", "neutral"
+
     chips = [
         ("Signal", f"{signal_icon} {signal.verdict}", signal_tone),
         ("Score", f"{signal.composite_score:+.2f}" if signal.composite_score is not None else "n/a", signal_tone),
         ("Analyst target", fmt_price(analyst.target_mean if analyst else None),
          tone_of(analyst.upside_pct if analyst else None)),
         ("Market cap", fmt_big(price.market_cap if price else None), "neutral"),
+        ("Rel. strength (3M)", rel_value, rel_tone),
+        ("Options flow", options_value, options_tone),
+        ("Next earnings", earnings_value, earnings_tone),
     ]
     chip_html = "".join(
         f'<div class="jta-chip {tone}"><div class="jta-chip-label">{label}</div>'
@@ -385,6 +462,41 @@ def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.
     st.markdown(f'<div class="jta-chip-row">{chip_html}</div>', unsafe_allow_html=True)
 
     st.info(f"**Timing view:** {signal.timing_note}")
+
+    with st.expander("📊 Signal track record (price-only backtest)"):
+        if history is not None and not history.empty:
+            bt = backtest_price_signal(bundle.ticker, history)
+            if bt.total_samples == 0:
+                st.caption(bt.note)
+            else:
+                st.caption(bt.note)
+                rows_html = [
+                    '<div class="jta-bt-row header"><div>Verdict</div><div>Samples</div>'
+                    '<div>Avg forward return</div><div>Hit rate</div></div>'
+                ]
+                for b in bt.buckets:
+                    if b.sample_count == 0:
+                        rows_html.append(
+                            f'<div class="jta-bt-row"><div class="jta-bt-verdict">{html_escape(b.verdict)}</div>'
+                            '<div>0</div><div class="jta-bt-value neutral">—</div>'
+                            '<div class="jta-bt-value neutral">—</div></div>'
+                        )
+                        continue
+                    ret_tone = tone_of(b.avg_forward_return_pct)
+                    rows_html.append(
+                        f'<div class="jta-bt-row"><div class="jta-bt-verdict">{html_escape(b.verdict)}</div>'
+                        f'<div>{b.sample_count}</div>'
+                        f'<div class="jta-bt-value {ret_tone}">{fmt_pct(b.avg_forward_return_pct)}</div>'
+                        f'<div class="jta-bt-value neutral">{b.hit_rate_pct:.0f}%</div></div>'
+                    )
+                st.markdown("".join(rows_html), unsafe_allow_html=True)
+                st.caption(
+                    f"Based on {bt.total_samples} historical samples. Past patterns are not a "
+                    "guarantee of future results -- this validates the price-only formula's "
+                    "historical tendency, not a prediction."
+                )
+        else:
+            st.caption("Not enough price history available to backtest.")
 
     if history is not None and not history.empty:
         ctrl_left, ctrl_right = st.columns([3, 1])
@@ -433,6 +545,33 @@ def render_ticker_details(bundle: StockBundle, signal: StockSignal, history: pd.
                 ))
             else:
                 rows.append(("Insider activity", "No recent transactions found"))
+        if rel_strength:
+            peer_txt = (
+                f"{fmt_pct(rel_strength.vs_peers_pp)} vs watchlist avg"
+                if rel_strength.vs_peers_pp is not None else "n/a"
+            )
+            bench_txt = (
+                f"{fmt_pct(rel_strength.vs_benchmark_pp)} vs S&P 500"
+                if rel_strength.vs_benchmark_pp is not None else "n/a"
+            )
+            rows.append(("Relative strength (3M momentum)", f"{peer_txt} · {bench_txt}"))
+        if options_snap:
+            rows.append((
+                "Options: Put/Call volume ratio",
+                f"{options_snap.put_call_volume_ratio:.2f}" if options_snap.put_call_volume_ratio is not None else "n/a",
+            ))
+            if options_snap.atm_implied_vol_pct is not None and options_snap.realized_vol_30d_pct is not None:
+                rows.append((
+                    "Implied vs. 30d realized volatility",
+                    f"{options_snap.atm_implied_vol_pct:.0f}% vs {options_snap.realized_vol_30d_pct:.0f}%",
+                ))
+        if earnings and earnings.next_earnings_date is not None:
+            revision_label = {
+                "up": "analysts raising estimates", "down": "analysts cutting estimates", "flat": "estimates flat",
+            }.get(earnings.revision_direction, "n/a")
+            days = earnings.days_until_earnings
+            when = "today" if days == 0 else (f"in {days}d" if days and days > 0 else f"{abs(days)}d ago")
+            rows.append(("Next earnings", f"{when} ({earnings.next_earnings_date.strftime('%b %d, %Y')}) — {revision_label}"))
         st.dataframe(
             pd.DataFrame(rows, columns=["Metric", "Value"]),
             hide_index=True,
@@ -569,6 +708,13 @@ def render_dashboard(watchlist: Watchlist, settings):
     if not results:
         return
 
+    try:
+        benchmark_bundle, _, _ = fetch_ticker_data("^GSPC")
+        benchmark_price = benchmark_bundle.price
+    except Exception:
+        benchmark_price = None
+    peer_prices = [bundle.price for bundle, _, _ in results if bundle.price]
+
     macro_notes, macro_headlines = fetch_macro_notes()
     if macro_notes or macro_headlines:
         with st.expander("🌍 Macro backdrop (rates, inflation, sector headlines)"):
@@ -635,7 +781,7 @@ def render_dashboard(watchlist: Watchlist, settings):
         if display_name:
             label += f" — {display_name}"
         with st.expander(label):
-            render_ticker_details(bundle, signal, history)
+            render_ticker_details(bundle, signal, history, peer_prices=peer_prices, benchmark_price=benchmark_price)
             if want_ai and settings.has_llm:
                 note_key = f"ai_note_{bundle.ticker}"
                 if note_key not in st.session_state:
@@ -718,6 +864,105 @@ def render_ai_news(watchlist: Watchlist, settings):
     st.markdown(DISCLAIMER)
 
 
+CONDITION_LABELS = {
+    "price_above": "Price rises above",
+    "price_below": "Price falls below",
+    "signal_bullish": "Signal turns Bullish",
+    "signal_bearish": "Signal turns Bearish",
+}
+
+
+def render_alerts(watchlist: Watchlist, settings):
+    st.title("🔔 Alerts")
+    st.caption(
+        "Set price or signal conditions on any tracked stock, commodity, or index. Status "
+        "below reflects the most recently fetched data (cached up to 15 minutes)."
+    )
+
+    book = AlertBook.load(settings.alerts_path)
+    all_tickers = watchlist.all_tickers() + list(COMMODITIES.keys()) + list(INDICES.keys())
+
+    def ticker_label(t: str) -> str:
+        name = display_name_for(t, None)
+        return f"{name} ({t})" if name else t
+
+    st.subheader("Add an alert")
+    with st.form("add_alert_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns([1.3, 1.3, 1])
+        with col1:
+            ticker = st.selectbox("Ticker", all_tickers, format_func=ticker_label)
+        with col2:
+            condition = st.selectbox("Condition", list(CONDITION_LABELS.keys()), format_func=CONDITION_LABELS.get)
+        needs_threshold = condition in ("price_above", "price_below")
+        with col3:
+            threshold = st.number_input(
+                "Price threshold ($)", min_value=0.0, value=100.0, disabled=not needs_threshold,
+            )
+        if st.form_submit_button("Add alert", type="primary"):
+            rule = new_alert_rule(ticker, condition, threshold if needs_threshold else None)
+            book.add(rule)
+            book.save()
+            st.success(f"Added: {rule.describe()}")
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("Your alerts")
+    if not book.rules:
+        st.info("No alerts configured yet -- add one above.")
+    else:
+        if st.button("🔄 Check now (refresh data)"):
+            fetch_ticker_data.clear()
+            st.rerun()
+
+        triggered_count = 0
+        rows_html = []
+        for rule in book.rules:
+            try:
+                bundle, signal, _ = fetch_ticker_data(rule.ticker)
+                result = evaluate_rule(rule, bundle.price, signal)
+            except Exception as exc:
+                result = AlertResult(rule, False, "error", error=str(exc))
+            if result.triggered:
+                triggered_count += 1
+            status_class = "triggered" if result.triggered else "ok"
+            status_text = "🔴 TRIGGERED" if result.triggered else "🟢 OK"
+            rows_html.append(
+                f'<div class="jta-alert-row {status_class}">'
+                f'<div>{html_escape(rule.describe())}</div>'
+                '<div style="display:flex; align-items:center; gap:12px;">'
+                f'<span>{html_escape(result.current_value)}</span>'
+                f'<span class="jta-alert-status {status_class}">{status_text}</span>'
+                '</div></div>'
+            )
+
+        if triggered_count:
+            st.error(f"⚠️ {triggered_count} alert(s) triggered right now.")
+        st.markdown("".join(rows_html), unsafe_allow_html=True)
+
+        st.subheader("Remove an alert")
+        with st.form("remove_alert_form", clear_on_submit=True):
+            options = {r.id: r.describe() for r in book.rules}
+            chosen_id = st.selectbox("Alert", list(options.keys()), format_func=lambda i: options[i])
+            if st.form_submit_button("Remove"):
+                if book.remove(chosen_id):
+                    book.save()
+                    st.success("Removed.")
+                    st.rerun()
+
+    st.markdown("---")
+    if not settings.has_alert_webhook:
+        st.caption(
+            "ℹ️ Alerts here only update when you have this app open. For real background alerts "
+            "(fired even when nobody's looking at the app), set the `ALERT_WEBHOOK_URL` repo "
+            "secret and the scheduled GitHub Actions check picks them up -- see DEPLOY.md."
+        )
+    st.caption(
+        "⚠️ On Streamlit Cloud, alerts added here reset when the app restarts (ephemeral "
+        "filesystem, same as the Watchlist tab). For alerts to survive restarts and be seen by "
+        "the scheduled background check, commit config/alerts.yaml to your repo directly."
+    )
+
+
 def render_watchlist_editor(watchlist: Watchlist):
     st.title("📋 Manage your watchlist")
     st.caption("These are the stocks the analyst tracks. Changes are saved to config/watchlist.yaml.")
@@ -788,6 +1033,32 @@ automatically about once a week (there's also a manual "Refresh now" button),
 and every headline shows its original source and publish date so you can go
 verify it yourself.
 
+**"Signal track record"** (inside each stock's detail card) backtests the
+**price-only** part of the signal (momentum + trend -- analyst ratings and
+insider activity aren't available as history, only as a snapshot) against
+that stock's own past: historically, when this said "Bullish," what actually
+happened to the price over the following weeks? This is the one section that
+validates whether the signal has any track record at all, rather than just
+sounding plausible -- treat the rest of the score as informed opinion, not a
+tested prediction, until you've checked this.
+
+**Options flow, relative strength, and next earnings** are three extra chips
+on each stock's card: options positioning (put/call ratio, implied vs.
+realized volatility) reads what options traders are pricing in; relative
+strength compares the stock's 3-month momentum to your whole watchlist and
+to the S&P 500 (is it actually outperforming, or just riding a rising tide?);
+and the earnings chip shows days until the next print plus whether analysts
+have been raising or cutting estimates over the last 90 days.
+
+**The Alerts tab** lets you set a price or signal condition on any tracked
+ticker. Inside the app, status updates whenever you have it open (data is
+cached up to 15 minutes). For alerts that fire even when nobody has the app
+open, add an `ALERT_WEBHOOK_URL` secret (a Slack or Discord incoming webhook)
+to your GitHub repo -- a scheduled GitHub Actions job
+(`.github/workflows/alerts.yml`) checks your rules on its own and posts there.
+Note: rules added through the *deployed* app don't persist across restarts --
+commit `config/alerts.yaml` to your repo for them to stick.
+
 ---
 
 ### Your data connections
@@ -813,13 +1084,15 @@ def main():
     settings = load_settings()
     watchlist = Watchlist.load(settings.watchlist_path)
 
-    tab_dash, tab_news, tab_watch, tab_help = st.tabs(
-        ["📊 Dashboard", "🗞️ AI News", "📋 Watchlist", "ℹ️ Help"]
+    tab_dash, tab_news, tab_alerts, tab_watch, tab_help = st.tabs(
+        ["📊 Dashboard", "🗞️ AI News", "🔔 Alerts", "📋 Watchlist", "ℹ️ Help"]
     )
     with tab_dash:
         render_dashboard(watchlist, settings)
     with tab_news:
         render_ai_news(watchlist, settings)
+    with tab_alerts:
+        render_alerts(watchlist, settings)
     with tab_watch:
         render_watchlist_editor(watchlist)
     with tab_help:

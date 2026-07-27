@@ -19,9 +19,28 @@ VERDICT_THRESHOLDS = (
     (-0.5, "Bearish"),
 )
 
+COMPONENT_WEIGHTS = {
+    "Analyst sentiment": 0.4,
+    "Price momentum": 0.3,
+    "Trend (50d vs 200d SMA)": 0.15,
+    "Insider activity": 0.15,
+}
+
 
 def _clip(value: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
+
+
+def weighted_composite(components: dict[str, float | None]) -> float | None:
+    """Renormalized weighted average over whichever named components (keys
+    from COMPONENT_WEIGHTS) are not None. Public so the backtester computes
+    the identical composite score formula used in production, just fed
+    point-in-time historical inputs instead of live ones."""
+    available = {k: v for k, v in components.items() if v is not None}
+    if not available:
+        return None
+    total_weight = sum(COMPONENT_WEIGHTS[name] for name in available)
+    return sum(COMPONENT_WEIGHTS[name] * value for name, value in available.items()) / total_weight
 
 
 @dataclass
@@ -44,20 +63,34 @@ def _analyst_component(analyst: AnalystView | None) -> float | None:
     return None
 
 
-def _momentum_component(price: PriceSnapshot | None) -> float | None:
-    if price is None:
-        return None
-    samples = [m for m in (price.momentum_3m_pct, price.momentum_1y_pct) if m is not None]
+def momentum_score(momentum_3m_pct: float | None, momentum_1y_pct: float | None) -> float | None:
+    """Public so the backtester can reproduce this exact formula against
+    historical (point-in-time) momentum figures."""
+    samples = [m for m in (momentum_3m_pct, momentum_1y_pct) if m is not None]
     if not samples:
         return None
     avg = sum(samples) / len(samples)
     return _clip(avg / 30)
 
 
-def _trend_component(price: PriceSnapshot | None) -> float | None:
-    if price is None or not price.sma_50 or not price.sma_200:
+def trend_score(sma_50: float | None, sma_200: float | None) -> float | None:
+    """Public so the backtester can reproduce this exact formula against
+    historical (point-in-time) SMA values."""
+    if not sma_50 or not sma_200:
         return None
-    return _clip((price.sma_50 / price.sma_200 - 1) * 10)
+    return _clip((sma_50 / sma_200 - 1) * 10)
+
+
+def _momentum_component(price: PriceSnapshot | None) -> float | None:
+    if price is None:
+        return None
+    return momentum_score(price.momentum_3m_pct, price.momentum_1y_pct)
+
+
+def _trend_component(price: PriceSnapshot | None) -> float | None:
+    if price is None:
+        return None
+    return trend_score(price.sma_50, price.sma_200)
 
 
 def _insider_component(insider: InsiderActivity | None) -> float | None:
@@ -70,7 +103,7 @@ def _insider_component(insider: InsiderActivity | None) -> float | None:
     return _clip(net_count / total) if total else None
 
 
-def _verdict_for(score: float) -> str:
+def verdict_for(score: float) -> str:
     for threshold, label in VERDICT_THRESHOLDS:
         if score >= threshold:
             return label
@@ -133,12 +166,6 @@ def compute_signal(
         "Trend (50d vs 200d SMA)": _trend_component(price),
         "Insider activity": _insider_component(insider),
     }
-    weights = {
-        "Analyst sentiment": 0.4,
-        "Price momentum": 0.3,
-        "Trend (50d vs 200d SMA)": 0.15,
-        "Insider activity": 0.15,
-    }
 
     available = {k: v for k, v in components.items() if v is not None}
     rationale = []
@@ -159,9 +186,8 @@ def compute_signal(
             timing_note="Insufficient data to generate a signal.",
         )
 
-    total_weight = sum(weights[name] for name in available)
-    composite_score = sum(weights[name] * value for name, value in available.items()) / total_weight
-    verdict = _verdict_for(composite_score)
+    composite_score = weighted_composite(components)
+    verdict = verdict_for(composite_score)
 
     if len(available) >= 4:
         confidence = "High"

@@ -1,0 +1,17 @@
+# Junior Trading Analyst - price/signal alert rules
+#
+# Empty by default. Add rules from the app's "Alerts" tab, or by hand:
+#
+# alerts:
+#   - id: a1b2c3d4          # any short unique string
+#     ticker: NVDA
+#     condition: price_above   # price_above | price_below | signal_bullish | signal_bearish
+#     threshold: 150.0         # required for price_above / price_below, omit for signal_* conditions
+#
+# IMPORTANT: rules added via the deployed Streamlit Cloud app do NOT
+# persist (its filesystem resets on every restart) -- for the scheduled
+# GitHub Actions check (.github/workflows/alerts.yml) to see your rules,
+# this file needs to be committed to the repo. Edit it on GitHub directly,
+# or run the app locally and `git push` the resulting file.
+
+alerts: []
